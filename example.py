@@ -92,7 +92,7 @@ def process_wiki_page(wiki_page: WikiPage) -> Wikiwho:
         Wikiwho: The object that contains the authorship of each token in the
             article.
     """
-    wikiwho = Wikiwho(wiki_page.get_title)
+    wikiwho = Wikiwho(wiki_page.get_title())
 
     for revisions in wiki_page.revisions():
         wikiwho.analyse_article(revisions)
@@ -102,10 +102,13 @@ def process_wiki_page(wiki_page: WikiPage) -> Wikiwho:
 
 if __name__ == '__main__':
     # Wikipedia article id (e.g. 6187 for Cologne)
-    wiki_page = WikiPage(6187, start_from='2017-08-19T18:23:42Z')
+    wiki_page = WikiPage(6187) #, start_from='2017-08-19T18:23:42Z')
 
     # Process the page to find the authorships of tokens
     wikiwho_obj = process_wiki_page(wiki_page)
+
+    import ipdb; ipdb.set_trace()  # breakpoint 632ac25c //
+
 
     print(wikiwho_obj.title)
     print(wikiwho_obj.ordered_revisions)
