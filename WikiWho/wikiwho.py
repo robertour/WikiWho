@@ -142,19 +142,26 @@ class Wikiwho:
 
     def is_vandalism(self, revision: Revision, rev_hash: str, text: str, text_len: int):
 
+        vandalism = False
         # check if the hash corresponds to vandalism
         if rev_hash in self.spam_hashes:
-            return True
-
+            self.spam_ids.append(rev_id)
+            self.spam_hashes.append(rev_hash)
+            vandalism = True
         # TODO: spam detection: DELETION
-        if not(revision.get('comment') and 'minor' in revision):
+        elif not(revision.get('comment') and 'minor' in revision):
             # if content is not moved (flag) to different article in good faith, check for vandalism
             # if revisions have reached a certain size
             if self.revision_prev.length > PREVIOUS_LENGTH and \
                text_len < CURR_LENGTH and \
                ((text_len-self.revision_prev.length) / self.revision_prev.length) <= CHANGE_PERCENTAGE:
                 # VANDALISM: CHANGE PERCENTAGE - DELETION
-                return True
+
+                vandalism = True
+
+        if vandalism:
+            self.spam_ids.append(rev_id)
+            self.spam_hashes.append(rev_hash)
         return False
 
     def analyse_article(self, page):
@@ -184,8 +191,6 @@ class Wikiwho:
             if vandalism:
                 #print("\n\t\t\t FLAG 1: VANDALISM! \n")
                 self.revision_curr = self.revision_prev
-                self.spam_ids.append(rev_id)
-                self.spam_hashes.append(rev_hash)
             else:
                 # Information about the current revision.
                 self.revision_curr = Revision()
