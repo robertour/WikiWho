@@ -82,7 +82,7 @@ class Paragraph(object):
 
 
 class Revision(object):
-    def __init__(self):
+    def __init__(self, id=0, timestamp=0, length=0, editor=''):
         self.id = 0  # Wikipedia revision id.
         self.editor = ''  # id if id != 0 else '0|{}'.format(name)
         self.timestamp = 0
