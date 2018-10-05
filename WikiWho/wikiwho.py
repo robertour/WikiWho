@@ -192,20 +192,15 @@ class Wikiwho:
                 #print("\n\t\t\t FLAG 1: VANDALISM! \n")
                 self.revision_curr = self.revision_prev
             else:
-                # Information about the current revision.
-                self.revision_curr = Revision()
-                self.revision_curr.id = rev_id
-                self.revision_curr.length = text_len
-                self.revision_curr.timestamp = revision['timestamp']
 
                 # Get editor information.
                 # Some revisions don't have editor.
-                contributor_id = revision.get('userid', '')
-                contributor_name = revision.get('user', '')
-                editor = contributor_id
+                editor = revision.get('userid', '')
                 editor = str(editor) if editor != 0 else '0|{}'.format(
-                    contributor_name)
-                self.revision_curr.editor = editor
+                    revision.get('user', ''))
+
+                # Create the current revision
+                self.revision_curr = Revision(id=rev_id, timestamp=revision['timestamp'], length=text_len, editor=editor)
 
                 # Content within the revision.
                 self.text_curr = text.lower()
