@@ -209,7 +209,7 @@ class Wikiwho:
                 vandalism = self.determine_authorship()
 
                 if vandalism:
-                    # print "---------------------------- FLAG 2"
+                    #print("\n\t\t\t FLAG 2: VANDALISM! \n")
                     # skip revision with vandalism in history
                     self.revision_curr = self.revision_prev
                     self.spam_ids.append(rev_id)
