@@ -1,74 +1,111 @@
 import requests
 from WikiWho.wikiwho import Wikiwho
-from WikiWho.utils import iter_rev_tokens
+from WikiWho.utils import iter_rev_tokens, browse_dict
 
 
-def get_wiki_page(page_id: int) -> dict:
-    """
-    Call the Wikipedia API for a specific article
-    
-    You can check here for the explanation of the api call
-    https://www.mediawiki.org/wiki/API:Revisions
-    
-    Args:
-        page_id (int): the id of the article
-    
-    Returns:
-        dict: the JSON (as a dict) with the contents of the API request
-    
-    Raises:
-        Exception: whenever an unknown error occurs or a the pages was not found
-    """
-    url = 'https://en.wikipedia.org/w/api.php'
-    params = {'pageids': page_id, 'action': 'query', 'prop': 'revisions',
-              'rvprop': 'content|ids|timestamp|sha1|comment|flags|user|userid',
-              'rvlimit': 'max', 'format': 'json', 'continue': '', 'rvdir': 'newer'}
+class WikiPage(object):
 
-    # gets only first 50 revisions of given page
-    result = requests.get(url=url, params=params).json()
-    if 'error' in result:
-        raise Exception(
-            'Wikipedia API returned the following error:' + str(result['error']))
+    def __init__(self, page_id: int, lng: str='en', start_from: str=None):
+        """
+        Call the Wikipedia API for a specific article
 
-    pages = result['query']['pages']
-    if "-1" in pages:
-        raise Exception(
-            'The article ({}) you are trying to request does not exist!'.format(page_id))
+        You can check here for the explanation of the api call
+        https://www.mediawiki.org/wiki/API:Revisions
 
-    _, page = result['query']['pages'].popitem()
-    if 'missing' in page:
-        raise Exception(
-            'The article ({}) you are trying to request does not exist!'.format(page_id))
+        Args:
+            page_id (int): the id of the article
 
-    import ipdb; ipdb.set_trace()  # breakpoint be970539 //
+        Returns:
+            dict: the JSON (as a dict) with the contents of the API request
+
+        Raises:
+            Exception: whenever an unknown error occurs or a the pages was not found
+        """
+
+        self.url = f'https://{lng}.wikipedia.org/w/api.php'
+        self.params = {
+            'pageids': page_id,
+            'action': 'query',
+            'prop': 'revisions',
+            'rvprop': 'content|ids|timestamp|sha1|comment|flags|user|userid',
+            'rvlimit': 'max',
+            'format': 'json',
+            'continue': '',
+            'rvdir': 'newer',
+        }
+
+        if start_from is not None:
+
+            self.params['rvstart'] = start_from
+
+        self.result = self.request(self.url, self.params)
+        self.page = self.get_page(self.result)
+
+    def request(self, url, params) -> dict:
+        # gets only first 50 revisions of given page
+        result = requests.get(url=url, params=params).json()
+
+        if 'error' in result:
+            raise Exception(
+                'Wikipedia API returned the following error:' + str(result['error']))
+
+        return result
+
+    def get_page(self, result):
+        pages = result['query']['pages']
+        if "-1" in pages:
+            raise Exception(
+                'The article ({}) you are trying to request does not exist!'.format(page_id))
+
+        _, page = result['query']['pages'].popitem()
+        if 'missing' in page:
+            raise Exception(
+                'The article ({}) you are trying to request does not exist!'.format(page_id))
+
+        print(f"Loading revisions starting from {page['revisions'][-1]['revid']} "
+              f"({page['revisions'][-1]['timestamp']})")
+
+        return page
+
+    def get_title(self):
+        return self.page['title']
+
+    def revisions(self):
+        yield self.page.get('revisions', [])
+
+        while 'continue' in self.result:
+            self.params['rvcontinue'] = self.result['continue']['rvcontinue']
+            self.result = self.request(self.url, self.params)
+            self.page = self.get_page(self.result)
+            yield self.page.get('revisions', [])
 
 
-    return page
-
-
-def process_wiki_page(page: dict) -> Wikiwho:
+def process_wiki_page(wiki_page: WikiPage) -> Wikiwho:
     """Find the original author of each token in a wikipedia page. It
     uses Wikiwho for finding such article.
-    
+
     Args:
-        page (dict): the JSON (as a dict) with the contents of the API request 
-    
+        wiki_page (WikiPage): a representation of the wikipedia page that contains all
+            the revisions
+
     Returns:
         Wikiwho: The object that contains the authorship of each token in the
             article.
     """
-    wikiwho = Wikiwho(page['title'])
-    wikiwho.analyse_article(page.get('revisions', []))
-    wikiwho.rvcontinue = result['continue']['rvcontinue']
+    wikiwho = Wikiwho(wiki_page.get_title)
+
+    for revisions in wiki_page.revisions():
+        wikiwho.analyse_article(revisions)
+
     return wikiwho
 
 
 if __name__ == '__main__':
     # Wikipedia article id (e.g. 6187 for Cologne)
-    page = get_wiki_page(6187)
+    wiki_page = WikiPage(6187, start_from='2017-08-19T18:23:42Z')
 
     # Process the page to find the authorships of tokens
-    wikiwho_obj = process_wiki_page(page)
+    wikiwho_obj = process_wiki_page(wiki_page)
 
     print(wikiwho_obj.title)
     print(wikiwho_obj.ordered_revisions)

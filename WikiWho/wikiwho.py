@@ -436,6 +436,7 @@ class Wikiwho:
                 paragraph_curr = Paragraph()
                 paragraph_curr.hash_value = hash_curr
                 paragraph_curr.value = paragraph
+               
 
                 if hash_curr in self.revision_curr.paragraphs:
                     self.revision_curr.paragraphs[hash_curr].append(paragraph_curr)

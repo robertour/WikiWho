@@ -11,11 +11,28 @@ from __future__ import unicode_literals
 import hashlib
 from collections import Counter
 import re
+import json
+import os
+import tempfile
+import subprocess
 
 
 regex_dot = re.compile(r"([^\s\.=][^\s\.=][^\s\.=]\.) ")
 regex_url = re.compile(r"(http.*?://.*?[ \|<>\n\r])")
 # regex_url = re.compile(r"(http[s]?://.*?[ \|<>\n\r])")
+
+def browse_dict(_dict: dict, browser='firefox'):
+    """Show a dictionary in a browser
+    
+    Args:
+        _dict (dict): _dict object to visualize
+        browser (str, optional): Description
+    """
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as fp:
+        json.dump(_dict, fp)
+
+    subprocess.call([browser, fp.name])
+    os.remove(fp.name)
 
 
 def calculate_hash(text):
