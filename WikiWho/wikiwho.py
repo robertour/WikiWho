@@ -140,14 +140,13 @@ class Wikiwho:
                     self.ordered_revisions.append(self.revision_curr.id)
             self.temp = []
 
-    def is_vandalism(self, revision: Revision, rev_hash: str, text: str) -> bool:
+    def is_vandalism(self, revision: Revision, rev_hash: str, text: str, text_len: int):
 
         # check if the hash corresponds to vandalism
         if rev_hash in self.spam_hashes:
             return True
 
         # TODO: spam detection: DELETION
-        text_len = len(text)
         if not(revision.get('comment') and 'minor' in revision):
             # if content is not moved (flag) to different article in good faith, check for vandalism
             # if revisions have reached a certain size
@@ -173,16 +172,17 @@ class Wikiwho:
             # Update the information about the previous revision.
             self.revision_prev = self.revision_curr
 
-            # store text, revision id and hash
+            # store text, text lenght, revision id and hash
             text = revision.get('*', '')
+            text_len = len(text)
             rev_id = int(revision['revid'])
             rev_hash = revision.get('sha1', calculate_hash(text))
 
             # check if there was vandalism
-            vandalism = self.is_vandalism(revision, rev_hash, text):
+            vandalism = self.is_vandalism(revision, rev_hash, text, text_len)
 
             if vandalism:
-                # print("---------------------------- FLAG 1")
+                #print("\n\t\t\t FLAG 1: VANDALISM! \n")
                 self.revision_curr = self.revision_prev
                 self.spam_ids.append(rev_id)
                 self.spam_hashes.append(rev_hash)
