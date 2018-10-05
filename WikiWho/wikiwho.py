@@ -142,12 +142,9 @@ class Wikiwho:
 
     def is_vandalism(self, revision: Revision, rev_hash: str, text: str, text_len: int):
 
-        vandalism = False
         # check if the hash corresponds to vandalism
         if rev_hash in self.spam_hashes:
-            self.spam_ids.append(rev_id)
-            self.spam_hashes.append(rev_hash)
-            vandalism = True
+            return True
         # TODO: spam detection: DELETION
         elif not(revision.get('comment') and 'minor' in revision):
             # if content is not moved (flag) to different article in good faith, check for vandalism
@@ -156,13 +153,14 @@ class Wikiwho:
                text_len < CURR_LENGTH and \
                ((text_len-self.revision_prev.length) / self.revision_prev.length) <= CHANGE_PERCENTAGE:
                 # VANDALISM: CHANGE PERCENTAGE - DELETION
-
-                vandalism = True
-
-        if vandalism:
-            self.spam_ids.append(rev_id)
-            self.spam_hashes.append(rev_hash)
+                return True
+           
         return False
+
+    def handle_vandalism(self, rev_id, rev_hash):
+        self.spam_ids.append(rev_id)
+        self.spam_hashes.append(rev_hash)
+        self.revision_curr = self.revision_prev
 
     def analyse_article(self, page):
         """
@@ -186,11 +184,10 @@ class Wikiwho:
             rev_hash = revision.get('sha1', calculate_hash(text))
 
             # check if there was vandalism
-            vandalism = self.is_vandalism(revision, rev_hash, text, text_len)
-
-            if vandalism:
+            if self.is_vandalism(revision, rev_hash, text, text_len):
                 #print("\n\t\t\t FLAG 1: VANDALISM! \n")
-                self.revision_curr = self.revision_prev
+                # skip revision with vandalism in history
+                handle_vandalism(rev_id, rev_hash)
             else:
 
                 # Get editor information.
@@ -211,9 +208,7 @@ class Wikiwho:
                 if vandalism:
                     #print("\n\t\t\t FLAG 2: VANDALISM! \n")
                     # skip revision with vandalism in history
-                    self.revision_curr = self.revision_prev
-                    self.spam_ids.append(rev_id)
-                    self.spam_hashes.append(rev_hash)
+                    handle_vandalism(rev_id, rev_hash)
                 else:
                     # Add the current revision with all the information.
                     self.revisions.update(
