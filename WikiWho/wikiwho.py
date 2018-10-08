@@ -718,7 +718,6 @@ class Wikiwho:
                             self.revision_curr.original_adds += 1
                             self.tokens.append(word_curr)
                             diff[pos] = ''
-                            # TODO: why isn't this a break
                             pos = diff_len + 1
                     pos += 1
 
