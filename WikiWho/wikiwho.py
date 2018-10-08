@@ -671,7 +671,10 @@ class Wikiwho:
         # TODO: https://github.com/python/cpython/blob/master/Lib/difflib.py#L868
         # This could be way more efficient, if it is reimplemented according to the actual
         # requirements.
+        # For example, all the '?' are simply ignored, and it would be best to keep the 
+        # word separated in the self implementation of compare.
         diff = list(d.compare(text_prev, text_curr))
+
         for sentence_curr in unmatched_sentences_curr:
             for word in sentence_curr.splitted:
                 curr_matched = False
@@ -691,7 +694,7 @@ class Wikiwho:
                                     curr_matched = True
                                     sentence_curr.words.append(word_prev)
                                     matched_words_prev.append(word_prev)
-                                    diff[pos] = ''
+                                    diff[pos] = '' # del diff[pos]]
                                     pos = diff_len + 1
                                     break
                         elif word_diff[0] == '-':
@@ -702,7 +705,7 @@ class Wikiwho:
                                     word_prev.outbound.append(
                                         self.revision_curr.id)
                                     matched_words_prev.append(word_prev)
-                                    diff[pos] = ''
+                                    diff[pos] = '' # del diff[pos]]
                                     break
                         elif word_diff[0] == '+':
                             # a new added word
@@ -717,7 +720,7 @@ class Wikiwho:
                             self.token_id += 1
                             self.revision_curr.original_adds += 1
                             self.tokens.append(word_curr)
-                            diff[pos] = ''
+                            diff[pos] = '' # del diff[pos]
                             pos = diff_len + 1
                     pos += 1
 
