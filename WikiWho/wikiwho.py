@@ -668,14 +668,19 @@ class Wikiwho:
             return matched_words_prev, possible_vandalism
 
         d = Differ()
+        # TODO: https://github.com/python/cpython/blob/master/Lib/difflib.py#L868
+        # This could be way more efficient, if it is reimplemented according to the actual
+        # requirements.
         diff = list(d.compare(text_prev, text_curr))
         for sentence_curr in unmatched_sentences_curr:
             for word in sentence_curr.splitted:
                 curr_matched = False
                 pos = 0
                 diff_len = len(diff)
+                # TODO: this loop should be an enumerate(1, diff)
                 while pos < diff_len:
                     word_diff = diff[pos]
+                    # TODO: what is the purpose of this is this necessary?
                     if word == word_diff[2:]:
                         if word_diff[0] == ' ':
                             # match
@@ -713,6 +718,7 @@ class Wikiwho:
                             self.revision_curr.original_adds += 1
                             self.tokens.append(word_curr)
                             diff[pos] = ''
+                            # TODO: why isn't this a break
                             pos = diff_len + 1
                     pos += 1
 
