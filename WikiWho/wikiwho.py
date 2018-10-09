@@ -49,7 +49,6 @@ class Wikiwho:
         self.revision_curr = Revision()
         self.revision_prev = Revision()
 
-        self.text_curr = ''
         self.temp = []
 
     def clean_attributes(self):
@@ -57,7 +56,6 @@ class Wikiwho:
         Empty attributes that are usually not needed after analyzing an article.
         """
         self.revision_prev = None
-        self.text_curr = ''
         self.temp = []
 
     def analyse_article_from_xml_dump(self, page):
@@ -121,11 +119,8 @@ class Wikiwho:
                     contributor_name)
                 self.revision_curr.editor = editor
 
-                # Content within the revision.
-                self.text_curr = text.lower()
-
                 # Perform comparison.
-                vandalism = self.determine_authorship()
+                vandalism = self.determine_authorship(text.lower())
 
                 if vandalism:
                     # print "---------------------------- FLAG 2"
@@ -140,26 +135,25 @@ class Wikiwho:
                     self.ordered_revisions.append(self.revision_curr.id)
             self.temp = []
 
-    def is_vandalism(self, revision: Revision, rev_hash: str, text: str, text_len: int):
+    def is_vandalism(self, revision: dict):
 
         # check if the hash corresponds to vandalism
-        if rev_hash in self.spam_hashes:
+        if self.revision_curr.id in self.spam_ids:
             return True
         # TODO: spam detection: DELETION
         elif not(revision.get('comment') and 'minor' in revision):
             # if content is not moved (flag) to different article in good faith, check for vandalism
             # if revisions have reached a certain size
             if self.revision_prev.length > PREVIOUS_LENGTH and \
-               text_len < CURR_LENGTH and \
-               ((text_len-self.revision_prev.length) / self.revision_prev.length) <= CHANGE_PERCENTAGE:
+               self.revision_curr.length < CURR_LENGTH and \
+               ((self.revision_curr.length -self.revision_prev.length) / self.revision_prev.length) <= CHANGE_PERCENTAGE:
                 # VANDALISM: CHANGE PERCENTAGE - DELETION
                 return True
            
         return False
 
-    def handle_vandalism(self, rev_id, rev_hash):
-        self.spam_ids.append(rev_id)
-        self.spam_hashes.append(rev_hash)
+    def handle_vandalism(self):
+        self.spam_ids.append(self.revision_curr.id )
         self.revision_curr = self.revision_prev
 
     def analyse_article(self, page):
@@ -170,45 +164,36 @@ class Wikiwho:
         # Iterate over revisions of the article.
         for revision in page:
 
-            # TODO: please comment this condition.
+            # TODO: please comment why this condition is here
             if 'texthidden' in revision or 'textmissing' in revision:
                 continue
 
             # Update the information about the previous revision.
             self.revision_prev = self.revision_curr
 
-            # store text, text lenght, revision id and hash
+            # store text, text lenght, revision id
             text = revision.get('*', '')
-            text_len = len(text)
-            rev_id = int(revision['revid'])
-            rev_hash = revision.get('sha1', calculate_hash(text))
+
+            # Create the current revision
+            self.revision_curr = Revision(id=int(revision['revid']), timestamp=revision['timestamp'], length=len(text))
 
             # check if there was vandalism
-            if self.is_vandalism(revision, rev_hash, text, text_len):
+            if self.is_vandalism(revision):
                 #print("\n\t\t\t FLAG 1: VANDALISM! \n")
                 # skip revision with vandalism in history
-                handle_vandalism(rev_id, rev_hash)
+                self.handle_vandalism()
+
             else:
-
-                # Get editor information.
-                # Some revisions don't have editor.
-                editor = revision.get('userid', '')
-                editor = str(editor) if editor != 0 else '0|{}'.format(
-                    revision.get('user', ''))
-
-                # Create the current revision
-                self.revision_curr = Revision(id=rev_id, timestamp=revision['timestamp'], length=text_len, editor=editor)
-
-                # Content within the revision.
-                self.text_curr = text.lower()
+                # Extract the editor from the revision
+                self.revision_curr.extract_editor(revision)
 
                 # Perform comparison.
-                vandalism = self.determine_authorship()
+                vandalism = self.determine_authorship(text.lower())
 
                 if vandalism:
                     #print("\n\t\t\t FLAG 2: VANDALISM! \n")
                     # skip revision with vandalism in history
-                    handle_vandalism(rev_id, rev_hash)
+                    self.handle_vandalism()
                 else:
                     # Add the current revision with all the information.
                     self.revisions.update(
@@ -216,7 +201,7 @@ class Wikiwho:
                     self.ordered_revisions.append(self.revision_curr.id)
             self.temp = []
 
-    def determine_authorship(self):
+    def determine_authorship(self, text):
         # Containers for unmatched paragraphs and sentences in both revisions.
         unmatched_sentences_curr = []
         unmatched_sentences_prev = []
@@ -229,7 +214,7 @@ class Wikiwho:
         try:
             # Analysis of the paragraphs in the current revision.
             unmatched_paragraphs_curr, unmatched_paragraphs_prev, matched_paragraphs_prev = \
-                self.analyse_paragraphs_in_revision()
+                self.analyse_paragraphs_in_revision(text)
 
             # Analysis of the sentences in the unmatched paragraphs of the current revision.
             if unmatched_paragraphs_curr:
@@ -343,14 +328,14 @@ class Wikiwho:
 
         return vandalism
 
-    def analyse_paragraphs_in_revision(self):
+    def analyse_paragraphs_in_revision(self, text):
         # Containers for unmatched and matched paragraphs.
         unmatched_paragraphs_curr = []
         unmatched_paragraphs_prev = []
         matched_paragraphs_prev = []
 
         # Split the text of the current into paragraphs.
-        paragraphs = split_into_paragraphs(self.text_curr)
+        paragraphs = split_into_paragraphs(text)
 
         # Iterate over the paragraphs of the current version.
         for paragraph in paragraphs:

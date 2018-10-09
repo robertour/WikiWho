@@ -82,14 +82,20 @@ class Paragraph(object):
 
 
 class Revision(object):
-    def __init__(self, id=0, timestamp=0, length=0, editor=''):
-        self.id = 0  # Wikipedia revision id.
+    def __init__(self, id=0, timestamp=0, length=0):
+        self.id = id  # Wikipedia revision id.
         self.editor = ''  # id if id != 0 else '0|{}'.format(name)
-        self.timestamp = 0
+        self.timestamp = timestamp
         self.paragraphs = {}  # Dictionary of paragraphs. {paragraph_hash : [paragraph_obj, ..]}.
         self.ordered_paragraphs = []  # Ordered list of paragraph hashes.
-        self.length = 0  # Content length (bytes).
+        self.length = length  # Content length (bytes).
         self.original_adds = 0  # Number of tokens originally added in this revision.
+
+    def extract_editor(self, revision: dict):
+        # Some revisions don't have editor.
+        editor = revision.get('userid', '')
+        self.editor = str(editor) if editor != 0 else '0|{}'.format(
+            revision.get('user', ''))
 
     def __repr__(self):
         return str(id(self))
