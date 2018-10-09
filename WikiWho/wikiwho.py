@@ -16,7 +16,7 @@ from difflib import Differ
 
 from .structures import Word, Sentence, Paragraph, Revision
 from .utils import calculate_hash, split_into_paragraphs, split_into_sentences, split_into_tokens, \
-    compute_avg_word_freq
+    compute_avg_word_freq, SequenceMatcher
 
 
 # Spam detection variables.
@@ -668,25 +668,31 @@ class Wikiwho:
                     self.tokens.append(word_curr)
             return matched_words_prev, possible_vandalism
 
-        d = Differ()
+        #d = Differ()
         # TODO: https://github.com/python/cpython/blob/master/Lib/difflib.py#L868
         # This could be way more efficient, if it is reimplemented according to the actual
         # requirements.
         # For example, all the '?' are simply ignored, and it would be best to keep the 
         # word separated in the self implementation of compare.
-        diff = list(d.compare(text_prev, text_curr))
+        #diff = list(d.compare(text_prev, text_curr))
+
+        sm = SequenceMatcher(None, text_prev, text_curr) 
+        _diff_test = sm.get_opcodes()
+
 
         for sentence_curr in unmatched_sentences_curr:
             for word in sentence_curr.splitted:
                 curr_matched = False
                 pos = 0
-                diff_len = len(diff)
+                diff_len = len(_diff_test)
                 # TODO: this loop should be an enumerate(1, diff)
                 while pos < diff_len:
-                    word_diff = diff[pos]
+                    #word_diff = diff[pos]
+                    (op, op_word) = _diff_test[pos]
+
                     # TODO: what is the purpose of this is this necessary?
-                    if word == word_diff[2:]:
-                        if word_diff[0] == ' ':
+                    if word == op_word:
+                        if op == 0:
                             # match
                             for word_prev in unmatched_words_prev:
                                 if not word_prev.matched and word_prev.value == word:
@@ -695,10 +701,12 @@ class Wikiwho:
                                     curr_matched = True
                                     sentence_curr.words.append(word_prev)
                                     matched_words_prev.append(word_prev)
-                                    diff[pos] = '' # del diff[pos]]
+                                    #diff[pos] = '' # del diff[pos]]
+                                    _diff_test[pos] = (0,'') # del diff[pos]]
+                                    #del _diff_test[pos]
                                     pos = diff_len + 1
                                     break
-                        elif word_diff[0] == '-':
+                        elif op == -1:
                             # deleted
                             for word_prev in unmatched_words_prev:
                                 if not word_prev.matched and word_prev.value == word:
@@ -706,9 +714,11 @@ class Wikiwho:
                                     word_prev.outbound.append(
                                         self.revision_curr.id)
                                     matched_words_prev.append(word_prev)
-                                    diff[pos] = '' # del diff[pos]]
+                                    #diff[pos] = '' # del diff[pos]]
+                                    _diff_test[pos] = (0,'') # del diff[pos]]
+                                    #del _diff_test[pos]
                                     break
-                        elif word_diff[0] == '+':
+                        elif op == 1:
                             # a new added word
                             curr_matched = True
                             word_curr = Word()
@@ -721,7 +731,9 @@ class Wikiwho:
                             self.token_id += 1
                             self.revision_curr.original_adds += 1
                             self.tokens.append(word_curr)
-                            diff[pos] = '' # del diff[pos]
+                            #diff[pos] = '' # del diff[pos]
+                            _diff_test[pos] = (0,'') # del diff[pos]
+                            #del _diff_test[pos]
                             pos = diff_len + 1
                     pos += 1
 
