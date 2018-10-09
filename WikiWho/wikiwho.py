@@ -674,7 +674,8 @@ class Wikiwho:
         # requirements.
         # For example, all the '?' are simply ignored, and it would be best to keep the 
         # word separated in the self implementation of compare.
-        diff = list(d.compare(text_prev, text_curr))
+        #diff = list(d.compare(text_prev, text_curr))
+        diff = [w for w in d.compare(text_prev, text_curr) if w[0] != '?']
 
         for sentence_curr in unmatched_sentences_curr:
             for word in sentence_curr.splitted:
