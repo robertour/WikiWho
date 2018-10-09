@@ -43,8 +43,7 @@ class Wikiwho:
         self.rvcontinue = '0'
         self.title = article_title
         self.page_id = None  # article id
-        # sequential id for tokens in article. unique per token per article.
-        self.token_id = 0
+        self.token_id = 0  # sequential id for tokens in article. unique per token per article.
         # Revisions to compare.
         self.revision_curr = Revision()
         self.revision_prev = Revision()
@@ -117,8 +116,7 @@ class Wikiwho:
                     contributor_name = ''
                     contributor_id = ''
                 editor = contributor_id
-                editor = str(editor) if editor != 0 else '0|{}'.format(
-                    contributor_name)
+                editor = str(editor) if editor != 0 else '0|{}'.format(contributor_name)
                 self.revision_curr.editor = editor
 
                 # Content within the revision.
@@ -129,38 +127,14 @@ class Wikiwho:
 
                 if vandalism:
                     # print "---------------------------- FLAG 2"
-                    # skip revision with vandalism in history
-                    self.revision_curr = self.revision_prev
+                    self.revision_curr = self.revision_prev  # skip revision with vandalism in history
                     self.spam_ids.append(rev_id)
                     self.spam_hashes.append(rev_hash)
                 else:
                     # Add the current revision with all the information.
-                    self.revisions.update(
-                        {self.revision_curr.id: self.revision_curr})
+                    self.revisions.update({self.revision_curr.id: self.revision_curr})
                     self.ordered_revisions.append(self.revision_curr.id)
             self.temp = []
-
-    def is_vandalism(self, revision: Revision, rev_hash: str, text: str, text_len: int):
-
-        # check if the hash corresponds to vandalism
-        if rev_hash in self.spam_hashes:
-            return True
-        # TODO: spam detection: DELETION
-        elif not(revision.get('comment') and 'minor' in revision):
-            # if content is not moved (flag) to different article in good faith, check for vandalism
-            # if revisions have reached a certain size
-            if self.revision_prev.length > PREVIOUS_LENGTH and \
-               text_len < CURR_LENGTH and \
-               ((text_len-self.revision_prev.length) / self.revision_prev.length) <= CHANGE_PERCENTAGE:
-                # VANDALISM: CHANGE PERCENTAGE - DELETION
-                return True
-           
-        return False
-
-    def handle_vandalism(self, rev_id, rev_hash):
-        self.spam_ids.append(rev_id)
-        self.spam_hashes.append(rev_hash)
-        self.revision_curr = self.revision_prev
 
     def analyse_article(self, page):
         """
@@ -169,35 +143,49 @@ class Wikiwho:
         """
         # Iterate over revisions of the article.
         for revision in page:
-
-            # TODO: please comment this condition.
             if 'texthidden' in revision or 'textmissing' in revision:
                 continue
 
+            vandalism = False
             # Update the information about the previous revision.
             self.revision_prev = self.revision_curr
 
-            # store text, text lenght, revision id and hash
             text = revision.get('*', '')
-            text_len = len(text)
             rev_id = int(revision['revid'])
             rev_hash = revision.get('sha1', calculate_hash(text))
+            if rev_hash in self.spam_hashes:
+                vandalism = True
 
-            # check if there was vandalism
-            if self.is_vandalism(revision, rev_hash, text, text_len):
-                #print("\n\t\t\t FLAG 1: VANDALISM! \n")
-                # skip revision with vandalism in history
-                handle_vandalism(rev_id, rev_hash)
+            # TODO: spam detection: DELETION
+            text_len = len(text)
+            if not vandalism and not(revision.get('comment') and 'minor' in revision):
+                # if content is not moved (flag) to different article in good faith, check for vandalism
+                # if revisions have reached a certain size
+                if self.revision_prev.length > PREVIOUS_LENGTH and \
+                   text_len < CURR_LENGTH and \
+                   ((text_len-self.revision_prev.length) / self.revision_prev.length) <= CHANGE_PERCENTAGE:
+                    # VANDALISM: CHANGE PERCENTAGE - DELETION
+                    vandalism = True
+
+            if vandalism:
+                # print("---------------------------- FLAG 1")
+                self.revision_curr = self.revision_prev
+                self.spam_ids.append(rev_id)
+                self.spam_hashes.append(rev_hash)
             else:
+                # Information about the current revision.
+                self.revision_curr = Revision()
+                self.revision_curr.id = rev_id
+                self.revision_curr.length = text_len
+                self.revision_curr.timestamp = revision['timestamp']
 
                 # Get editor information.
                 # Some revisions don't have editor.
-                editor = revision.get('userid', '')
-                editor = str(editor) if editor != 0 else '0|{}'.format(
-                    revision.get('user', ''))
-
-                # Create the current revision
-                self.revision_curr = Revision(id=rev_id, timestamp=revision['timestamp'], length=text_len, editor=editor)
+                contributor_id = revision.get('userid', '')
+                contributor_name = revision.get('user', '')
+                editor = contributor_id
+                editor = str(editor) if editor != 0 else '0|{}'.format(contributor_name)
+                self.revision_curr.editor = editor
 
                 # Content within the revision.
                 self.text_curr = text.lower()
@@ -206,13 +194,13 @@ class Wikiwho:
                 vandalism = self.determine_authorship()
 
                 if vandalism:
-                    #print("\n\t\t\t FLAG 2: VANDALISM! \n")
-                    # skip revision with vandalism in history
-                    handle_vandalism(rev_id, rev_hash)
+                    # print "---------------------------- FLAG 2"
+                    self.revision_curr = self.revision_prev  # skip revision with vandalism in history
+                    self.spam_ids.append(rev_id)
+                    self.spam_hashes.append(rev_hash)
                 else:
                     # Add the current revision with all the information.
-                    self.revisions.update(
-                        {self.revision_curr.id: self.revision_curr})
+                    self.revisions.update({self.revision_curr.id: self.revision_curr})
                     self.ordered_revisions.append(self.revision_curr.id)
             self.temp = []
 
@@ -234,8 +222,7 @@ class Wikiwho:
             # Analysis of the sentences in the unmatched paragraphs of the current revision.
             if unmatched_paragraphs_curr:
                 unmatched_sentences_curr, unmatched_sentences_prev, matched_sentences_prev, total_sentences = \
-                    self.analyse_sentences_in_paragraphs(
-                        unmatched_paragraphs_curr, unmatched_paragraphs_prev)
+                    self.analyse_sentences_in_paragraphs(unmatched_paragraphs_curr, unmatched_paragraphs_prev)
 
                 # TODO: spam detection
                 if len(unmatched_paragraphs_curr) / len(self.revision_curr.ordered_paragraphs) > UNMATCHED_PARAGRAPH:
@@ -280,8 +267,7 @@ class Wikiwho:
                         for sentence in unmatched_paragraph.sentences[sentence_hash]:
                             for word_prev in sentence.words:
                                 if not word_prev.matched:
-                                    word_prev.outbound.append(
-                                        self.revision_curr.id)
+                                    word_prev.outbound.append(self.revision_curr.id)
 
         # Reset matched structures from old revisions. And update inbound and last used info of matched words.
         for matched_paragraph in matched_paragraphs_prev:
@@ -322,24 +308,19 @@ class Wikiwho:
             # Add the new paragraphs to hash table of paragraphs.
             for unmatched_paragraph in unmatched_paragraphs_curr:
                 if unmatched_paragraph.hash_value in self.paragraphs_ht:
-                    self.paragraphs_ht[unmatched_paragraph.hash_value].append(
-                        unmatched_paragraph)
+                    self.paragraphs_ht[unmatched_paragraph.hash_value].append(unmatched_paragraph)
                 else:
-                    self.paragraphs_ht.update(
-                        {unmatched_paragraph.hash_value: [unmatched_paragraph]})
+                    self.paragraphs_ht.update({unmatched_paragraph.hash_value: [unmatched_paragraph]})
                 unmatched_paragraph.value = ''  # hash value is not used for next rev analysis
 
             # Add the new sentences to hash table of sentences.
             for unmatched_sentence in unmatched_sentences_curr:
                 if unmatched_sentence.hash_value in self.sentences_ht:
-                    self.sentences_ht[unmatched_sentence.hash_value].append(
-                        unmatched_sentence)
+                    self.sentences_ht[unmatched_sentence.hash_value].append(unmatched_sentence)
                 else:
-                    self.sentences_ht.update(
-                        {unmatched_sentence.hash_value: [unmatched_sentence]})
+                    self.sentences_ht.update({unmatched_sentence.hash_value: [unmatched_sentence]})
                 unmatched_sentence.value = ''  # hash value is not used for next rev analysis
-                # splitted word values are not used for next rev analysis
-                unmatched_sentence.splitted = None
+                unmatched_sentence.splitted = None  # splitted word values are not used for next rev analysis
 
         return vandalism
 
@@ -378,14 +359,6 @@ class Wikiwho:
                                 else:
                                     matched_all = False
 
-                        # TODO it is not necessary to traverse all the words!:
-                        #         if not matched_all and matched_one:
-                        #             break
-                        #     if not matched_all and matched_one:
-                        #             break
-                        # if not matched_all and matched_one:
-                        #             break
-
                     if not matched_one:
                         # if there is not any already matched prev word, so set them all as matched
                         matched_curr = True
@@ -401,13 +374,10 @@ class Wikiwho:
 
                         # Add paragraph to current revision.
                         if hash_curr in self.revision_curr.paragraphs:
-                            self.revision_curr.paragraphs[hash_curr].append(
-                                paragraph_prev)
+                            self.revision_curr.paragraphs[hash_curr].append(paragraph_prev)
                         else:
-                            self.revision_curr.paragraphs.update(
-                                {paragraph_prev.hash_value: [paragraph_prev]})
-                        self.revision_curr.ordered_paragraphs.append(
-                            paragraph_prev.hash_value)
+                            self.revision_curr.paragraphs.update({paragraph_prev.hash_value: [paragraph_prev]})
+                        self.revision_curr.ordered_paragraphs.append(paragraph_prev.hash_value)
                         break
                     elif matched_all:
                         # if all prev words in this paragraph are already matched
@@ -432,14 +402,6 @@ class Wikiwho:
                                     else:
                                         matched_all = False
 
-                            # TODO it is not necessary to traverse all the words!:
-                            #         if not matched_all and matched_one:
-                            #             break
-                            #     if not matched_all and matched_one:
-                            #             break
-                            # if not matched_all and matched_one:
-                            #             break
-
                         if not matched_one:
                             # if there is not any already matched prev word, so set them all as matched
                             matched_curr = True
@@ -455,13 +417,10 @@ class Wikiwho:
 
                             # Add paragraph to current revision.
                             if hash_curr in self.revision_curr.paragraphs:
-                                self.revision_curr.paragraphs[hash_curr].append(
-                                    paragraph_prev)
+                                self.revision_curr.paragraphs[hash_curr].append(paragraph_prev)
                             else:
-                                self.revision_curr.paragraphs.update(
-                                    {paragraph_prev.hash_value: [paragraph_prev]})
-                            self.revision_curr.ordered_paragraphs.append(
-                                paragraph_prev.hash_value)
+                                self.revision_curr.paragraphs.update({paragraph_prev.hash_value: [paragraph_prev]})
+                            self.revision_curr.ordered_paragraphs.append(paragraph_prev.hash_value)
                             break
                         elif matched_all:
                             # if all prev words in this paragraph are already matched
@@ -479,13 +438,10 @@ class Wikiwho:
                 paragraph_curr.value = paragraph
 
                 if hash_curr in self.revision_curr.paragraphs:
-                    self.revision_curr.paragraphs[hash_curr].append(
-                        paragraph_curr)
+                    self.revision_curr.paragraphs[hash_curr].append(paragraph_curr)
                 else:
-                    self.revision_curr.paragraphs.update(
-                        {paragraph_curr.hash_value: [paragraph_curr]})
-                self.revision_curr.ordered_paragraphs.append(
-                    paragraph_curr.hash_value)
+                    self.revision_curr.paragraphs.update({paragraph_curr.hash_value: [paragraph_curr]})
+                self.revision_curr.ordered_paragraphs.append(paragraph_curr.hash_value)
                 unmatched_paragraphs_curr.append(paragraph_curr)
 
         # Identify unmatched paragraphs in previous revision for further analysis.
@@ -520,10 +476,8 @@ class Wikiwho:
                 if not sentence:
                     # dont track empty lines
                     continue
-                # here whitespaces in the sentence are cleaned
-                sentence = ' '.join(split_into_tokens(sentence))
-                # then hash values is calculated
-                hash_curr = calculate_hash(sentence)
+                sentence = ' '.join(split_into_tokens(sentence))  # here whitespaces in the sentence are cleaned
+                hash_curr = calculate_hash(sentence)  # then hash values is calculated
                 matched_curr = False
                 total_sentences += 1
 
@@ -550,13 +504,10 @@ class Wikiwho:
 
                                 # Add the sentence information to the paragraph.
                                 if hash_curr in paragraph_curr.sentences:
-                                    paragraph_curr.sentences[hash_curr].append(
-                                        sentence_prev)
+                                    paragraph_curr.sentences[hash_curr].append(sentence_prev)
                                 else:
-                                    paragraph_curr.sentences.update(
-                                        {sentence_prev.hash_value: [sentence_prev]})
-                                paragraph_curr.ordered_sentences.append(
-                                    sentence_prev.hash_value)
+                                    paragraph_curr.sentences.update({sentence_prev.hash_value: [sentence_prev]})
+                                paragraph_curr.ordered_sentences.append(sentence_prev.hash_value)
                                 break
                             elif matched_all:
                                 # if all prev words in this sentence are already matched
@@ -588,13 +539,10 @@ class Wikiwho:
 
                                 # Add the sentence information to the paragraph.
                                 if hash_curr in paragraph_curr.sentences:
-                                    paragraph_curr.sentences[hash_curr].append(
-                                        sentence_prev)
+                                    paragraph_curr.sentences[hash_curr].append(sentence_prev)
                                 else:
-                                    paragraph_curr.sentences.update(
-                                        {sentence_prev.hash_value: [sentence_prev]})
-                                paragraph_curr.ordered_sentences.append(
-                                    sentence_prev.hash_value)
+                                    paragraph_curr.sentences.update({sentence_prev.hash_value: [sentence_prev]})
+                                paragraph_curr.ordered_sentences.append(sentence_prev.hash_value)
                                 break
                             elif matched_all:
                                 # if all prev words in this sentence are already matched
@@ -609,13 +557,10 @@ class Wikiwho:
                     sentence_curr.hash_value = hash_curr
 
                     if hash_curr in paragraph_curr.sentences:
-                        paragraph_curr.sentences[hash_curr].append(
-                            sentence_curr)
+                        paragraph_curr.sentences[hash_curr].append(sentence_curr)
                     else:
-                        paragraph_curr.sentences.update(
-                            {sentence_curr.hash_value: [sentence_curr]})
-                    paragraph_curr.ordered_sentences.append(
-                        sentence_curr.hash_value)
+                        paragraph_curr.sentences.update({sentence_curr.hash_value: [sentence_curr]})
+                    paragraph_curr.ordered_sentences.append(sentence_curr.hash_value)
                     unmatched_sentences_curr.append(sentence_curr)
 
         # Identify the unmatched sentences in the previous paragraph revision.
@@ -684,22 +629,14 @@ class Wikiwho:
             return matched_words_prev, possible_vandalism
 
         d = Differ()
-        # TODO: https://github.com/python/cpython/blob/master/Lib/difflib.py#L868
-        # This could be way more efficient, if it is reimplemented according to the actual
-        # requirements.
-        # For example, all the '?' are simply ignored, and it would be best to keep the 
-        # word separated in the self implementation of compare.
         diff = list(d.compare(text_prev, text_curr))
-
         for sentence_curr in unmatched_sentences_curr:
             for word in sentence_curr.splitted:
                 curr_matched = False
                 pos = 0
                 diff_len = len(diff)
-                # TODO: this loop should be an enumerate(1, diff)
                 while pos < diff_len:
                     word_diff = diff[pos]
-                    # TODO: what is the purpose of this is this necessary?
                     if word == word_diff[2:]:
                         if word_diff[0] == ' ':
                             # match
@@ -710,7 +647,7 @@ class Wikiwho:
                                     curr_matched = True
                                     sentence_curr.words.append(word_prev)
                                     matched_words_prev.append(word_prev)
-                                    diff[pos] = '' # del diff[pos]]
+                                    diff[pos] = ''
                                     pos = diff_len + 1
                                     break
                         elif word_diff[0] == '-':
@@ -718,10 +655,9 @@ class Wikiwho:
                             for word_prev in unmatched_words_prev:
                                 if not word_prev.matched and word_prev.value == word:
                                     word_prev.matched = True
-                                    word_prev.outbound.append(
-                                        self.revision_curr.id)
+                                    word_prev.outbound.append(self.revision_curr.id)
                                     matched_words_prev.append(word_prev)
-                                    diff[pos] = '' # del diff[pos]]
+                                    diff[pos] = ''
                                     break
                         elif word_diff[0] == '+':
                             # a new added word
@@ -736,7 +672,7 @@ class Wikiwho:
                             self.token_id += 1
                             self.revision_curr.original_adds += 1
                             self.tokens.append(word_curr)
-                            diff[pos] = '' # del diff[pos]
+                            diff[pos] = ''
                             pos = diff_len + 1
                     pos += 1
 
