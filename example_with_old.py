@@ -1,5 +1,5 @@
 import requests
-from WikiWho.wikiwho import Wikiwho
+from WikiWho.wikiwho_old import Wikiwho
 from WikiWho.utils import iter_rev_tokens, browse_dict, Timer
 
 
