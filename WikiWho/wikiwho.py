@@ -51,10 +51,20 @@ WORD_MATCH_CONF_EDGE = 100
 
 # Moved-run recovery looks for unique informative n-grams in unmatched diff regions. The sizes/caps below bound how much extra indexing we do per word diff while still finding copied or moved runs that SequenceMatcher misses.
 WORD_MATCH_MOVE_NGRAM_SIZES = (10, 8, 6, 4, 3)
+# Run admission and per-token coverage use different evidence floors. An
+# unstructured content core needs four informative tokens to admit a moved run
+# by itself. After separate structural evidence admits the run, unique windows
+# with three informative tokens can provide per-token coverage.
 WORD_MATCH_MOVE_MIN_INFO_TOKENS = 3
-WORD_MATCH_MOVE_TOKEN_WINDOW = 4
+WORD_MATCH_MOVE_MIN_ANCHOR_INFO_TOKENS = 4
 WORD_MATCH_MOVE_MIN_RECOVERABLE_TOKENS = 24
+WORD_MATCH_MOVE_MIN_LINK_WINDOW = 6
 WORD_MATCH_MOVE_MAX_WINDOWS = 300000
+
+# Partial historical-sentence restoration needs enough unchanged context to make the old sentence identity stronger than the few token identities already occupied elsewhere.
+WORD_MATCH_HISTORICAL_MIN_AVAILABLE_TOKENS = 24
+WORD_MATCH_HISTORICAL_MAX_OCCUPIED_TOKENS = 2
+WORD_MATCH_HISTORICAL_MIN_EVIDENCE_RATIO = 4
 
 # A large pure deletion immediately before an unchanged suffix can otherwise keep very old glue words alive by edge matching. Limit that correction to the first suffix window so normal suffix preservation remains cheap.
 WORD_MATCH_EDGE_STALE_REWRITE_MIN_TOKENS = 24
@@ -612,45 +622,103 @@ def _count_subsequence_cached(tokens, needle, count_state):
     return count
 
 
-def _copy_safe_moved_run(count_text_prev, count_text_curr, text_curr, curr_start, length, count_state):
-    core = _longest_content_core(text_curr[curr_start:curr_start + length])
-    if len(core) < WORD_MATCH_MOVE_MIN_INFO_TOKENS:
-        return False
-    return (_count_subsequence_cached(count_text_prev, core, count_state) == 1 and
-            _count_subsequence_cached(count_text_curr, core, count_state) == 1)
+def _link_anchor_bounds(tokens):
+    try:
+        link_open = tokens.index('[[')
+        link_close = tokens.index(']]', link_open + 1)
+    except ValueError:
+        return None
+    if link_open < 2 or not all(
+            _is_informative_move_token(token) for token in tokens[link_open - 2:link_open]):
+        return None
+    if sum(_is_informative_move_token(token) for token in tokens[link_open + 1:link_close]) < 2:
+        return None
+    return link_open, link_close
 
 
-def _content_run_bounds(tokens, index):
-    start = index
-    while start > 0 and _is_informative_move_token(tokens[start - 1]):
-        start -= 1
-    end = index + 1
-    while end < len(tokens) and _is_informative_move_token(tokens[end]):
-        end += 1
-    return start, end
-
-
-def _has_unique_content_window(count_text_prev, count_text_curr, text_curr, curr_index, count_state):
-    if not _is_informative_move_token(text_curr[curr_index]):
-        return True
-
-    run_start, run_end = _content_run_bounds(text_curr, curr_index)
-    if run_end - run_start < WORD_MATCH_MOVE_TOKEN_WINDOW:
-        if run_end - run_start >= WORD_MATCH_MOVE_MIN_INFO_TOKENS:
-            needle = tuple(text_curr[run_start:run_end])
-            if any(any(char.isdigit() for char in token) for token in needle):
-                return (_count_subsequence_cached(count_text_prev, needle, count_state) == 1 and
-                        _count_subsequence_cached(count_text_curr, needle, count_state) == 1)
-        return False
-
-    earliest = max(run_start, curr_index - WORD_MATCH_MOVE_TOKEN_WINDOW + 1)
-    latest = min(curr_index, run_end - WORD_MATCH_MOVE_TOKEN_WINDOW)
-    for start in range(earliest, latest + 1):
-        needle = tuple(text_curr[start:start + WORD_MATCH_MOVE_TOKEN_WINDOW])
-        if (_count_subsequence_cached(count_text_prev, needle, count_state) == 1 and
-                _count_subsequence_cached(count_text_curr, needle, count_state) == 1):
+def _template_field_anchor(run, content_core):
+    """Return whether a content core follows a raw ``| name =`` opener."""
+    core_length = len(content_core)
+    for start in range(len(run) - core_length + 1):
+        if tuple(run[start:start + core_length]) != content_core:
+            continue
+        if start < 3 or run[start - 1] != '=':
+            continue
+        index = start - 2
+        while index >= 0 and _is_informative_move_token(run[index]):
+            index -= 1
+        if index >= 0 and index < start - 2 and run[index] == '|':
             return True
     return False
+
+
+def _copy_safe_moved_run(count_text_prev, count_text_curr, text_curr, curr_start, length, count_state):
+    run = text_curr[curr_start:curr_start + length]
+    content_core = _longest_content_core(run)
+    # Four content tokens are normally required to establish a moved run. Allow
+    # an exact unique three-token value only when the run itself contains its
+    # template-field opener. This does not admit weak prose anchors such as
+    # "across the country". A bare digit-bearing exception is deliberately not
+    # used here: repeated citation dates can otherwise swap token lineages.
+    if (len(content_core) >= WORD_MATCH_MOVE_MIN_ANCHOR_INFO_TOKENS or
+            (len(content_core) >= WORD_MATCH_MOVE_MIN_INFO_TOKENS and
+             _template_field_anchor(run, content_core))):
+        return (_count_subsequence_cached(count_text_prev, content_core, count_state) == 1 and
+                _count_subsequence_cached(count_text_curr, content_core, count_state) == 1)
+    if _link_anchor_bounds(run) is None:
+        return False
+    return (_count_subsequence_cached(count_text_prev, run, count_state) == 1 and
+            _count_subsequence_cached(count_text_curr, run, count_state) == 1)
+
+
+def _has_unique_link_move_window(count_text_prev, count_text_curr, text_curr,
+                                 curr_index, run_start, run_end, count_state):
+    max_window = min(run_end - run_start, max(WORD_MATCH_MOVE_NGRAM_SIZES))
+    for ngram_size in range(max_window, WORD_MATCH_MOVE_MIN_LINK_WINDOW - 1, -1):
+        earliest = max(run_start, curr_index - ngram_size + 1)
+        latest = min(curr_index, run_end - ngram_size)
+        for start in range(earliest, latest + 1):
+            needle = tuple(text_curr[start:start + ngram_size])
+            anchor = _link_anchor_bounds(needle)
+            if anchor is None:
+                continue
+            link_open, _ = anchor
+            if not start + link_open - 2 <= curr_index < start + link_open:
+                continue
+            if (_count_subsequence_cached(count_text_prev, needle, count_state) == 1 and
+                    _count_subsequence_cached(count_text_curr, needle, count_state) == 1):
+                return True
+    return False
+
+
+def _unique_moved_run_coverage(count_text_prev, count_text_curr, text_curr,
+                               run_start, run_end, count_state,
+                               minimum_informative=WORD_MATCH_MOVE_MIN_INFO_TOKENS):
+    run_length = run_end - run_start
+    max_window = min(run_length, max(WORD_MATCH_MOVE_NGRAM_SIZES))
+    if max_window < minimum_informative:
+        return set()
+
+    informative_prefix = [0]
+    informative_count = 0
+    for token in text_curr[run_start:run_end]:
+        if _is_informative_move_token(token):
+            informative_count += 1
+        informative_prefix.append(informative_count)
+
+    covered = set()
+    for window_size in range(minimum_informative, max_window + 1):
+        for relative_start in range(run_length - window_size + 1):
+            relative_end = relative_start + window_size
+            if (informative_prefix[relative_end] - informative_prefix[relative_start] <
+                    minimum_informative):
+                continue
+            start = run_start + relative_start
+            needle = tuple(text_curr[start:start + window_size])
+            if (_count_subsequence_cached(count_text_prev, needle, count_state) == 1 and
+                    _count_subsequence_cached(count_text_curr, needle, count_state) == 1):
+                covered.update(range(start, start + window_size))
+    return covered
 
 
 def _can_assign_moved_match(match_conf, prev_used_by, curr_index, prev_index):
@@ -698,6 +766,153 @@ def _move_ngram_sizes(recoverable_count):
     return sizes
 
 
+def _raw_context_ngram_sizes(prev_len, curr_len):
+    sizes = []
+    indexed_windows = 0
+    for ngram_size in WORD_MATCH_MOVE_NGRAM_SIZES:
+        window_count = (max(0, prev_len - ngram_size + 1) +
+                        max(0, curr_len - ngram_size + 1))
+        if not window_count:
+            continue
+        if indexed_windows + window_count > WORD_MATCH_MOVE_MAX_WINDOWS:
+            break
+        sizes.append(ngram_size)
+        indexed_windows += window_count
+    return sizes
+
+
+_TEMPLATE_PIPE_KEY_KINDS = frozenset(('template-field', 'template-arg'))
+
+
+def _is_template_pipe_key(key):
+    return (isinstance(key, tuple) and len(key) == 5 and
+            key[:2] == ('wikitext', '|') and
+            key[2] in _TEMPLATE_PIPE_KEY_KINDS and
+            isinstance(key[3], tuple))
+
+
+def _pipe_key_changed_only_by_template_spacing(prev_key, curr_key):
+    if not (_is_template_pipe_key(prev_key) and
+            _is_template_pipe_key(curr_key)):
+        return False
+    if prev_key[:3] != curr_key[:3] or prev_key[4:] != curr_key[4:]:
+        return False
+    prev_name = prev_key[3]
+    curr_name = curr_key[3]
+    return prev_name != curr_name and ''.join(prev_name) == ''.join(curr_name)
+
+
+def _has_template_name_spacing_change(prev_keys, curr_keys):
+    forms = []
+    for keys in (prev_keys, curr_keys):
+        by_compact_name = defaultdict(set)
+        for key in keys:
+            if _is_template_pipe_key(key):
+                by_compact_name[''.join(key[3])].add(key[3])
+        forms.append(by_compact_name)
+
+    prev_forms, curr_forms = forms
+    for compact_name in set(prev_forms).intersection(curr_forms):
+        if any(
+                prev_name != curr_name
+                for prev_name in prev_forms[compact_name]
+                for curr_name in curr_forms[compact_name]):
+            return True
+    return False
+
+
+def _recover_unique_template_field_words(text_prev, text_curr,
+                                         prev_keys, curr_keys,
+                                         prev_for_curr, match_conf, prev_used_by,
+                                         full_text_prev=None, full_text_curr=None,
+                                         get_full_texts=None, count_state=None):
+    # Template renames change the contextual keys of their separators. Preserve
+    # still-unmatched field content when it remains bracketed by the same exact
+    # raw context and both separator keys changed together.
+    recoverable_count = len(text_prev) + len(text_curr)
+    if recoverable_count < WORD_MATCH_MOVE_MIN_RECOVERABLE_TOKENS:
+        return
+    if not _has_template_name_spacing_change(prev_keys, curr_keys):
+        return
+
+    if not any(
+            _is_informative_move_token(token) and index not in prev_used_by
+            for index, token in enumerate(text_prev)):
+        return
+    if not any(
+            _is_informative_move_token(token) and prev_for_curr[index] is None
+            for index, token in enumerate(text_curr)):
+        return
+
+    ngram_sizes = _raw_context_ngram_sizes(len(text_prev), len(text_curr))
+    if not ngram_sizes:
+        return
+
+    count_texts = [full_text_prev, full_text_curr]
+
+    def ensure_count_texts():
+        if count_texts[0] is None or count_texts[1] is None:
+            if get_full_texts is not None:
+                count_texts[0], count_texts[1] = get_full_texts()
+            else:
+                count_texts[0] = text_prev
+                count_texts[1] = text_curr
+        return count_texts[0], count_texts[1]
+
+    if count_state is None:
+        count_state = {'counts': {}}
+    prev_info = _informative_move_token_prefix(text_prev)
+    curr_info = _informative_move_token_prefix(text_curr)
+    prev_spans = [(0, len(text_prev))]
+    curr_spans = [(0, len(text_curr))]
+
+    for ngram_size in ngram_sizes:
+        prev_contexts = _index_move_ngrams(
+            text_prev, prev_spans, ngram_size, prev_info,
+        )
+        curr_contexts = _index_move_ngrams(
+            text_curr, curr_spans, ngram_size, curr_info,
+        )
+        candidates = []
+        for key, prev_positions in prev_contexts.items():
+            curr_positions = curr_contexts.get(key)
+            if (len(prev_positions) != 1 or not curr_positions or
+                    len(curr_positions) != 1):
+                continue
+            prev_start = prev_positions[0]
+            curr_start = curr_positions[0]
+            changed_pipes = tuple(
+                offset for offset in range(ngram_size)
+                if text_curr[curr_start + offset] == '|' and
+                _pipe_key_changed_only_by_template_spacing(
+                    prev_keys[prev_start + offset],
+                    curr_keys[curr_start + offset],
+                )
+            )
+            if len(changed_pipes) >= 2:
+                candidates.append((abs(prev_start - curr_start),
+                                   prev_start, curr_start, key, changed_pipes))
+
+        for _, prev_start, curr_start, key, changed_pipes in sorted(candidates, reverse=True):
+            count_text_prev, count_text_curr = ensure_count_texts()
+            if (_count_subsequence_cached(count_text_prev, key, count_state) != 1 or
+                    _count_subsequence_cached(count_text_curr, key, count_state) != 1):
+                continue
+            for offset in range(ngram_size):
+                prev_index = prev_start + offset
+                curr_index = curr_start + offset
+                if not _is_informative_move_token(text_curr[curr_index]):
+                    continue
+                if not (any(pipe < offset for pipe in changed_pipes) and
+                        any(pipe > offset for pipe in changed_pipes)):
+                    continue
+                if prev_for_curr[curr_index] is not None or prev_index in prev_used_by:
+                    continue
+                _assign_word_match(prev_for_curr, match_conf, prev_used_by,
+                                   curr_index, prev_index,
+                                   WORD_MATCH_CONF_MOVED_RUN)
+
+
 def _recoverable_indices_from_spans(spans, start_allowed):
     indices = []
     for span_start, span_end in spans:
@@ -707,11 +922,167 @@ def _recoverable_indices_from_spans(spans, start_allowed):
     return indices
 
 
+def _template_field_before_content(tokens, content_start):
+    if content_start < 3 or tokens[content_start - 1] != '=':
+        return None
+    field_end = content_start - 1
+    index = field_end - 1
+    while index >= 0 and tokens[index] != '|':
+        if not (_is_informative_move_token(tokens[index]) or tokens[index] == '_'):
+            return None
+        index -= 1
+    if index < 0 or index == field_end - 1:
+        return None
+    raw_field = tuple(tokens[index + 1:field_end])
+    normalized = ''.join(
+        token for token in raw_field if _is_informative_move_token(token)
+    ).rstrip('0123456789')
+    if not normalized:
+        return None
+    return raw_field, normalized
+
+
+def _recover_unique_short_numeric_template_fields(
+        text_prev, text_curr,
+        prev_for_curr, match_conf, prev_used_by,
+        full_text_prev=None, full_text_curr=None,
+        get_full_texts=None,
+        prev_candidate_spans=None,
+        curr_candidate_spans=None,
+        count_state=None):
+    """Repair a renamed numeric template field split by one weaker match.
+
+    A SequenceMatcher equal opcode can claim the year of an otherwise intact
+    date for an unrelated newly added date. Moved-run recovery then cannot seed
+    the old three-token run because one previous position lies outside its
+    replace spans. Reconsider only maximal, digit-bearing three-token values
+    whose template field changed to an equivalent compact name (for example,
+    ``term_start`` to ``termstart2``), whose current positions are all in
+    replace spans, and whose previous occurrence retains at least two positions
+    there. Exact full-revision uniqueness and the confidence ladder still
+    decide the assignment. Same-name citation date fields are excluded because
+    their repeated values can otherwise exchange token lineages.
+    """
+    run_length = WORD_MATCH_MOVE_MIN_INFO_TOKENS
+    if run_length != 3:
+        return
+
+    if curr_candidate_spans is None:
+        candidate_ranges = []
+        index = 0
+        while index < len(text_curr):
+            if not _is_informative_move_token(text_curr[index]):
+                index += 1
+                continue
+            run_start = index
+            index += 1
+            while index < len(text_curr) and _is_informative_move_token(text_curr[index]):
+                index += 1
+            if index - run_start == run_length:
+                candidate_ranges.append((run_start, index))
+    else:
+        # The conflict this pass repairs leaves the complete current value as
+        # one three-token replace span. Inspecting only those spans makes the
+        # common path proportional to the opcode count, without expanding span
+        # sets or scanning the complete unmatched text.
+        candidate_ranges = [
+            (start, end) for start, end in curr_candidate_spans
+            if end - start == run_length
+        ]
+
+    candidates = []
+    for run_start, run_end in candidate_ranges:
+        if ((run_start > 0 and _is_informative_move_token(text_curr[run_start - 1])) or
+                (run_end < len(text_curr) and _is_informative_move_token(text_curr[run_end]))):
+            continue
+        if not all(_is_informative_move_token(text_curr[position])
+                   for position in range(run_start, run_end)):
+            continue
+        needle = tuple(text_curr[run_start:run_end])
+        if not any(char.isdigit() for token in needle for char in token):
+            continue
+        curr_field = _template_field_before_content(text_curr, run_start)
+        if curr_field is None:
+            continue
+        if any(match_conf[position] >= WORD_MATCH_CONF_MOVED_RUN
+               for position in range(run_start, run_end)):
+            continue
+        candidates.append((run_start, needle, curr_field))
+
+    if not candidates:
+        return
+
+    candidate_needles = set(needle for _, needle, _ in candidates)
+    prev_positions = defaultdict(list)
+    for prev_start in range(len(text_prev) - run_length + 1):
+        prev_end = prev_start + run_length
+        needle = tuple(text_prev[prev_start:prev_end])
+        if needle not in candidate_needles:
+            continue
+        if ((prev_start > 0 and _is_informative_move_token(text_prev[prev_start - 1])) or
+                (prev_end < len(text_prev) and _is_informative_move_token(text_prev[prev_end]))):
+            continue
+        prev_positions[needle].append(prev_start)
+
+    if count_state is None:
+        count_state = {'counts': {}}
+    count_texts = [full_text_prev, full_text_curr]
+
+    def ensure_count_texts():
+        if count_texts[0] is None or count_texts[1] is None:
+            if get_full_texts is not None:
+                count_texts[0], count_texts[1] = get_full_texts()
+            else:
+                count_texts[0] = text_prev
+                count_texts[1] = text_curr
+        return count_texts[0], count_texts[1]
+
+    for curr_start, needle, curr_field in candidates:
+        positions = prev_positions.get(needle, ())
+        if len(positions) != 1:
+            continue
+        prev_start = positions[0]
+        prev_field = _template_field_before_content(text_prev, prev_start)
+        if (prev_field is None or prev_field[1] != curr_field[1] or
+                prev_field[0] == curr_field[0]):
+            continue
+        previous_indices = range(prev_start, prev_start + run_length)
+        if prev_candidate_spans is not None:
+            candidate_count = 0
+            for span_start, span_end in prev_candidate_spans:
+                if span_end <= prev_start:
+                    continue
+                if span_start >= prev_start + run_length:
+                    break
+                candidate_count += max(
+                    0,
+                    min(span_end, prev_start + run_length) - max(span_start, prev_start),
+                )
+            if candidate_count < run_length - 1:
+                continue
+        if any(
+                prev_used_by.get(position) is not None and
+                match_conf[prev_used_by[position]] >= WORD_MATCH_CONF_MOVED_RUN
+                for position in previous_indices):
+            continue
+
+        count_text_prev, count_text_curr = ensure_count_texts()
+        if (_count_subsequence_cached(count_text_prev, needle, count_state) != 1 or
+                _count_subsequence_cached(count_text_curr, needle, count_state) != 1):
+            continue
+        for offset in range(run_length):
+            _assign_word_match(
+                prev_for_curr, match_conf, prev_used_by,
+                curr_start + offset, prev_start + offset,
+                WORD_MATCH_CONF_MOVED_RUN,
+            )
+
+
 def _recover_moved_word_runs(text_prev, text_curr, prev_keys, curr_keys,
                              prev_for_curr, match_conf, prev_used_by,
                              full_text_prev=None, full_text_curr=None,
                              get_full_texts=None, prev_candidate_spans=None,
-                             curr_candidate_spans=None):
+                             curr_candidate_spans=None, count_state=None):
     count_texts = [full_text_prev, full_text_curr]
     if prev_candidate_spans is not None and curr_candidate_spans is not None:
         if not prev_candidate_spans or not curr_candidate_spans:
@@ -732,7 +1103,8 @@ def _recover_moved_word_runs(text_prev, text_curr, prev_keys, curr_keys,
 
     prev_info_prefix = _informative_move_token_prefix(prev_keys)
     curr_info_prefix = _informative_move_token_prefix(curr_keys)
-    count_state = {'counts': {}}
+    if count_state is None:
+        count_state = {'counts': {}}
     checked_runs = set()
     for ngram_size in _move_ngram_sizes(recoverable_count):
         protected_prev = set(
@@ -794,10 +1166,26 @@ def _recover_moved_word_runs(text_prev, text_curr, prev_keys, curr_keys,
                 continue
 
             confidence = _moved_run_confidence(length, ngram_size)
+            requires_complete_link_window = (
+                len(_longest_content_core(text_curr[curr_start:curr_start + length])) <
+                WORD_MATCH_MOVE_MIN_INFO_TOKENS
+            )
+            covered = None
+            if not requires_complete_link_window:
+                covered = _unique_moved_run_coverage(
+                    count_text_prev, count_text_curr, text_curr,
+                    curr_start, curr_start + length, count_state,
+                )
             for offset in range(length):
                 curr_index = curr_start + offset
-                if not _has_unique_content_window(count_text_prev, count_text_curr,
-                                                  text_curr, curr_index, count_state):
+                if requires_complete_link_window:
+                    if not _has_unique_link_move_window(
+                            count_text_prev, count_text_curr, text_curr,
+                            curr_index, curr_start, curr_start + length,
+                            count_state,
+                    ):
+                        continue
+                elif curr_index not in covered:
                     continue
                 _assign_word_match(prev_for_curr, match_conf, prev_used_by,
                                    curr_index, prev_start + offset,
@@ -876,13 +1264,33 @@ def _match_word_sequences(text_prev, text_curr, full_text_prev=None, full_text_c
                                    prev_mid_start + prev_index,
                                    WORD_MATCH_CONF_LOCAL)
 
+    recovery_count_state = {'counts': {}}
     _recover_moved_word_runs(text_prev, text_curr, prev_keys, curr_keys,
                              prev_for_curr, match_conf, prev_used_by,
                              full_text_prev=full_text_prev,
                              full_text_curr=full_text_curr,
                              get_full_texts=get_full_texts,
                              prev_candidate_spans=move_prev_spans,
-                             curr_candidate_spans=move_curr_spans)
+                             curr_candidate_spans=move_curr_spans,
+                             count_state=recovery_count_state)
+    _recover_unique_short_numeric_template_fields(
+        text_prev, text_curr,
+        prev_for_curr, match_conf, prev_used_by,
+        full_text_prev=full_text_prev,
+        full_text_curr=full_text_curr,
+        get_full_texts=get_full_texts,
+        prev_candidate_spans=move_prev_spans,
+        curr_candidate_spans=move_curr_spans,
+        count_state=recovery_count_state,
+    )
+    _recover_unique_template_field_words(
+        text_prev, text_curr, prev_keys, curr_keys,
+        prev_for_curr, match_conf, prev_used_by,
+        full_text_prev=full_text_prev,
+        full_text_curr=full_text_curr,
+        get_full_texts=get_full_texts,
+        count_state=recovery_count_state,
+    )
     _recover_edited_link_boundaries(text_prev, text_curr, prev_for_curr,
                                     match_conf, prev_used_by)
     _demote_stale_suffix_edge_matches(text_prev, text_curr, prev_words,
@@ -892,6 +1300,24 @@ def _match_word_sequences(text_prev, text_curr, full_text_prev=None, full_text_c
     matched_prev = set(prev_index for prev_index in prev_for_curr if prev_index is not None)
     deleted_prev = [index for index in range(len(text_prev)) if index not in matched_prev]
     return prev_for_curr, deleted_prev
+
+
+def _can_partially_restore_historical_sentence(words, previous_revision_id):
+    available = [word for word in words if not word.matched]
+    occupied_count = len(words) - len(available)
+    if (occupied_count == 0 or
+            occupied_count > WORD_MATCH_HISTORICAL_MAX_OCCUPIED_TOKENS or
+            len(available) < WORD_MATCH_HISTORICAL_MIN_AVAILABLE_TOKENS or
+            len(available) < WORD_MATCH_HISTORICAL_MIN_EVIDENCE_RATIO * occupied_count):
+        return False
+    removal_revisions = {
+        word.outbound[-1]
+        for word in available
+        if word.outbound
+    }
+    return (len(removal_revisions) == 1 and
+            previous_revision_id not in removal_revisions and
+            all(word.outbound for word in available))
 
 
 class Wikiwho:
@@ -1082,6 +1508,7 @@ class Wikiwho:
     def determine_authorship(self):
         # Containers for unmatched paragraphs and sentences in both revisions.
         unmatched_sentences_curr = []
+        restored_sentences_curr = []
         unmatched_sentences_prev = []
         matched_paragraphs_prev = []
         matched_sentences_prev = []
@@ -1096,7 +1523,8 @@ class Wikiwho:
 
             # Analysis of the sentences in the unmatched paragraphs of the current revision.
             if unmatched_paragraphs_curr:
-                unmatched_sentences_curr, unmatched_sentences_prev, matched_sentences_prev, total_sentences = \
+                unmatched_sentences_curr, restored_sentences_curr, unmatched_sentences_prev, \
+                    matched_sentences_prev, total_sentences = \
                     self.analyse_sentences_in_paragraphs(unmatched_paragraphs_curr, unmatched_paragraphs_prev)
 
                 # TODO: spam detection
@@ -1189,13 +1617,25 @@ class Wikiwho:
                 unmatched_paragraph.value = ''  # hash value is not used for next rev analysis
 
             # Add the new sentences to hash table of sentences.
-            for unmatched_sentence in unmatched_sentences_curr:
-                if unmatched_sentence.hash_value in self.sentences_ht:
-                    self.sentences_ht[unmatched_sentence.hash_value].append(unmatched_sentence)
+            for sentence_curr in unmatched_sentences_curr:
+                if sentence_curr.hash_value in self.sentences_ht:
+                    self.sentences_ht[sentence_curr.hash_value].append(sentence_curr)
                 else:
-                    self.sentences_ht.update({unmatched_sentence.hash_value: [unmatched_sentence]})
-                unmatched_sentence.value = ''  # hash value is not used for next rev analysis
-                unmatched_sentence.splitted = None  # splitted word values are not used for next rev analysis
+                    self.sentences_ht.update({sentence_curr.hash_value: [sentence_curr]})
+                sentence_curr.value = ''  # hash value is not used for next rev analysis
+                sentence_curr.splitted = None  # splitted word values are not used for next rev analysis
+
+            # A partially restored sentence supersedes the stale historical
+            # representation whose occupied words forced reconstruction. Put
+            # it first so a later delete-and-reinsert tries the current token
+            # identities before that stale representation.
+            for sentence_curr in restored_sentences_curr:
+                if sentence_curr.hash_value in self.sentences_ht:
+                    self.sentences_ht[sentence_curr.hash_value].insert(0, sentence_curr)
+                else:
+                    self.sentences_ht.update({sentence_curr.hash_value: [sentence_curr]})
+                sentence_curr.value = ''
+                sentence_curr.splitted = None
 
         return vandalism
 
@@ -1336,6 +1776,7 @@ class Wikiwho:
     def analyse_sentences_in_paragraphs(self, unmatched_paragraphs_curr, unmatched_paragraphs_prev):
         # Containers for unmatched and matched sentences.
         unmatched_sentences_curr = []
+        restored_sentences_curr = []
         unmatched_sentences_prev = []
         matched_sentences_prev = []
         total_sentences = 0
@@ -1423,6 +1864,40 @@ class Wikiwho:
                                 # if all prev words in this sentence are already matched
                                 sentence_prev.matched = True
                                 matched_sentences_prev.append(sentence_prev)
+                            elif _can_partially_restore_historical_sentence(
+                                    sentence_prev.words, self.revision_prev.id):
+                                # An exact historical sentence can return after a few of its
+                                # generic token objects have been reused elsewhere. Restore the
+                                # available identities and create new tokens only for occupied
+                                # positions instead of rejecting the entire sentence.
+                                sentence_reused = Sentence()
+                                sentence_reused.hash_value = hash_curr
+                                sentence_reused.value = sentence
+                                for word_prev in sentence_prev.words:
+                                    if word_prev.matched:
+                                        word_curr = Word()
+                                        word_curr.value = word_prev.value
+                                        word_curr.token_id = self.token_id
+                                        word_curr.origin_rev_id = self.revision_curr.id
+                                        word_curr.last_rev_id = self.revision_curr.id
+                                        sentence_reused.words.append(word_curr)
+                                        self.token_id += 1
+                                        self.revision_curr.original_adds += 1
+                                        self.tokens.append(word_curr)
+                                    else:
+                                        word_prev.matched = True
+                                        sentence_reused.words.append(word_prev)
+
+                                sentence_prev.matched = True
+                                matched_curr = True
+                                matched_sentences_prev.append(sentence_prev)
+                                if hash_curr in paragraph_curr.sentences:
+                                    paragraph_curr.sentences[hash_curr].append(sentence_reused)
+                                else:
+                                    paragraph_curr.sentences.update({hash_curr: [sentence_reused]})
+                                paragraph_curr.ordered_sentences.append(hash_curr)
+                                restored_sentences_curr.append(sentence_reused)
+                                break
 
                 # If the sentence did not match,
                 # then include in the container of unmatched sentences for further analysis.
@@ -1455,7 +1930,8 @@ class Wikiwho:
                     sentence_prev.matched = True
                     matched_sentences_prev.append(sentence_prev)
 
-        return unmatched_sentences_curr, unmatched_sentences_prev, matched_sentences_prev, total_sentences
+        return (unmatched_sentences_curr, restored_sentences_curr,
+                unmatched_sentences_prev, matched_sentences_prev, total_sentences)
 
     def analyse_words_in_sentences(self, unmatched_sentences_curr, unmatched_sentences_prev, possible_vandalism):
         matched_words_prev = []
