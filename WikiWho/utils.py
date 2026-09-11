@@ -125,25 +125,20 @@ def compute_avg_word_freq(token_list):
 
 def iter_rev_tokens(revision):
     """Yield tokens of the revision in order."""
-    # from copy import deepcopy
-    # ps_copy = deepcopy(revision.paragraphs)
-    tmp = {'p': [], 's': []}
+    paragraph_counts = {}
     for hash_paragraph in revision.ordered_paragraphs:
-        # paragraph = ps_copy[hash_paragraph].pop(0)
-        if len(revision.paragraphs[hash_paragraph]) > 1:
-            tmp['p'].append(hash_paragraph)
-            paragraph = revision.paragraphs[hash_paragraph][tmp['p'].count(hash_paragraph)-1]
-        else:
-            paragraph = revision.paragraphs[hash_paragraph][0]
-        tmp['s'][:] = []
+        paragraph_occurrence = paragraph_counts.get(hash_paragraph, 0)
+        paragraph_counts[hash_paragraph] = paragraph_occurrence + 1
+        paragraph = revision.paragraphs[hash_paragraph][
+            paragraph_occurrence
+        ]
+        sentence_counts = {}
         for hash_sentence in paragraph.ordered_sentences:
-            if len(paragraph.sentences[hash_sentence]) > 1:
-                # tmp['s'].append('{}-{}'.format(hash_paragraph, hash_sentence))  # and dont do tmp['s'][:] = []
-                tmp['s'].append(hash_sentence)
-                sentence = paragraph.sentences[hash_sentence][tmp['s'].count(hash_sentence)-1]
-            else:
-                sentence = paragraph.sentences[hash_sentence][0]
-            # sentence = paragraph.sentences[hash_sentence].pop(0)
+            sentence_occurrence = sentence_counts.get(hash_sentence, 0)
+            sentence_counts[hash_sentence] = sentence_occurrence + 1
+            sentence = paragraph.sentences[hash_sentence][
+                sentence_occurrence
+            ]
             for word in sentence.words:
                 yield word
 

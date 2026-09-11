@@ -137,6 +137,23 @@
     ]
   },
   {
+    "title": "Bradshaw, West Virginia",
+    "fixture": "fixtures/bradshaw,_west_virginia_revisions.json",
+    "history_through_revid": 511877979,
+    "cases": [
+      {
+        "id": "bradshaw_bias_date_survives_unref_removal",
+        "snapshot_revid": 511877979,
+        "context": "{{bias|date=September 2012}}",
+        "focus": ["2012"],
+        "expected": {
+          "values": ["2012"],
+          "origin_rev_ids": [510854404]
+        }
+      }
+    ]
+  },
+  {
     "title": "Splatoon 3",
     "fixture": "fixtures/splatoon_3_revisions.json",
     "history_through_revid": 1007397695,
@@ -158,6 +175,56 @@
         "expected": {
           "values": ["[[", "category", ":", "video", "games", "developed", "in", "japan", "]]"],
           "origin_rev_ids": [1007397440, 1007397440, 1007397440, 1007397440, 1007397440, 1007397695, 1007397695, 1007397695, 1007397440]
+        }
+      }
+    ]
+  },
+  {
+    "title": "Yeah Yeah Yeahs (EP)",
+    "fixture": "fixtures/yeah_yeah_yeahs_(ep)_revisions.json",
+    "cases": [
+      {
+        "id": "yeah_lead_title_before_duplicate_lineage_loss",
+        "snapshot_revid": 687881195,
+        "context": "'''''Yeah Yeah Yeahs''''' (mislabeled as",
+        "focus": ["Yeah Yeah Yeahs"],
+        "expected": {
+          "values": ["yeah", "yeah", "yeahs"],
+          "token_ids": [5, 6, 7],
+          "origin_rev_ids": [1625540, 1625540, 1625540]
+        }
+      },
+      {
+        "id": "yeah_lead_title_survives_article_restructure",
+        "snapshot_revid": 748288963,
+        "context": "'''''Yeah Yeah Yeahs''''' is the debut [[Extended play|EP]] by American",
+        "focus": ["Yeah Yeah Yeahs"],
+        "expected": {
+          "values": ["yeah", "yeah", "yeahs"],
+          "token_ids": [5, 6, 7],
+          "origin_rev_ids": [1625540, 1625540, 1625540]
+        }
+      },
+      {
+        "id": "yeah_lead_title_survives_infobox_duplicate_removal",
+        "snapshot_revid": 865416272,
+        "context": "'''''Yeah Yeah Yeahs''''' is the debut [[Extended play|EP]] by American",
+        "focus": ["Yeah Yeah Yeahs"],
+        "expected": {
+          "values": ["yeah", "yeah", "yeahs"],
+          "token_ids": [5, 6, 7],
+          "origin_rev_ids": [1625540, 1625540, 1625540]
+        }
+      },
+      {
+        "id": "yeah_lead_title_retains_original_lineage_in_latest_revision",
+        "snapshot_revid": 1367918295,
+        "context": "'''''Yeah Yeah Yeahs''''' is the debut [[extended play]] (EP) by the American",
+        "focus": ["Yeah Yeah Yeahs"],
+        "expected": {
+          "values": ["yeah", "yeah", "yeahs"],
+          "token_ids": [5, 6, 7],
+          "origin_rev_ids": [1625540, 1625540, 1625540]
         }
       }
     ]
@@ -386,6 +453,153 @@
           "last_rev_ids": [1153115618],
           "inbound": [[]],
           "outbound": [[]]
+        }
+      }
+    ]
+  },
+  {
+    "title": "Yoshiminosato Station",
+    "fixture": "fixtures/yoshiminosato_station_revisions.json",
+    "history_through_revid": 957802210,
+    "snapshot_revid": 957802210,
+    "cases": [
+      {
+        "id": "evaluation_yoshiminosato_infobox_url_origin",
+        "context": "| website     = {{Official website|1=http://www.nankai.co.jp/traffic/station/yoshiminosato}}",
+        "focus": ["http://www.nankai.co.jp/traffic/station/yoshiminosato"],
+        "expected": {
+          "values": ["http", ":", "/", "/", "www", ".", "nankai", ".", "co", ".", "jp", "/", "traffic", "/", "station", "/", "yoshiminosato"],
+          "origin_rev_ids": [777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072, 777311072]
+        }
+      }
+    ]
+  },
+  {
+    "title": "天草市立二浦小学校",
+    "fixture": "fixtures/amakusa_futaura_elementary_school_revisions.json",
+    "history_through_revid": 106452677,
+    "snapshot_revid": 106452677,
+    "cases": [
+      {
+        "id": "evaluation_amakusa_former_school_name_origin",
+        "context": "早浦亀浦両村組合立 白石小学校",
+        "context_occurrence": 2,
+        "focus": [{"text": "浦", "occurrence": 1}, "村"],
+        "expected": {
+          "values": ["浦", "村"],
+          "origin_rev_ids": [106452677, 106452677]
+        }
+      }
+    ]
+  },
+  {
+    "title": "Jewish Sports Review",
+    "fixture": "fixtures/jewish_sports_review_revisions.json",
+    "history_through_revid": 425223184,
+    "snapshot_revid": 425223184,
+    "cases": [
+      {
+        "id": "evaluation_jewish_sports_review_publisher_field_origin",
+        "context": "|title=Jewish sports legends: the International Jewish Hall of Fame  |publisher=Books.google.com |date= |accessdate=May 12, 2010}}",
+        "focus": ["publisher"],
+        "expected": {
+          "values": ["publisher"],
+          "origin_rev_ids": [361653377]
+        }
+      },
+      {
+        "id": "evaluation_jewish_sports_review_google_books_host_origin",
+        "context": "|title=Jewish sports legends: the International Jewish Hall of Fame  |publisher=Books.google.com |date= |accessdate=May 12, 2010}}",
+        "focus": ["Books.google.com"],
+        "expected": {
+          "values": ["books", ".", "google", ".", "com"],
+          "origin_rev_ids": [361653377, 361653377, 361653377, 361653377, 361653377]
+        }
+      },
+      {
+        "id": "evaluation_jewish_sports_review_date_fields_origin",
+        "context": "|title=Jewish sports legends: the International Jewish Hall of Fame  |publisher=Books.google.com |date= |accessdate=May 12, 2010}}",
+        "focus": ["date", "accessdate"],
+        "expected": {
+          "values": ["date", "accessdate"],
+          "origin_rev_ids": [361653377, 361653377]
+        }
+      }
+    ]
+  },
+  {
+    "title": "Richard Thompson (marine biologist)",
+    "fixture": "fixtures/richard_thompson_marine_biologist_revisions.json",
+    "history_through_revid": 954149685,
+    "snapshot_revid": 954149685,
+    "cases": [
+      {
+        "id": "evaluation_richard_thompson_moved_award_origin",
+        "context": "*2016: Marsh Award for Marine and Freshwater Conservation from the [[Zoological Society of London]] and [[Marsh Christian Trust]]",
+        "focus": ["Marsh Award for Marine and Freshwater Conservation"],
+        "expected": {
+          "values": ["marsh", "award", "for", "marine", "and", "freshwater", "conservation"],
+          "origin_rev_ids": [933675168, 933675168, 933675168, 933675168, 933675168, 933675168, 933675168]
+        }
+      }
+    ]
+  },
+  {
+    "title": "Meeting at Night",
+    "fixture": "fixtures/meeting_at_night_revisions.json",
+    "history_through_revid": 744563761,
+    "snapshot_revid": 744563761,
+    "cases": [
+      {
+        "id": "evaluation_meeting_at_night_rewritten_lead_phrase_origin",
+        "context": "The original poem appeared in ''[[Dramatic Romances and Lyrics]]'' (1845) in which \"Night\" and \"Morning\" were two sections.",
+        "focus": ["\"Night\" and \"Morning\""],
+        "expected": {
+          "values": ["\"", "night", "\"", "and", "\"", "morning", "\""],
+          "origin_rev_ids": [575833625, 575833625, 575833625, 575833625, 575833625, 575833625, 575833625]
+        }
+      }
+    ]
+  },
+  {
+    "title": "Johannes Westö",
+    "fixture": "fixtures/johannes_westo_revisions.json",
+    "history_through_revid": 957571858,
+    "snapshot_revid": 957571858,
+    "cases": [
+      {
+        "id": "evaluation_johannes_westo_youth_club_origin",
+        "context": "| youthclubs1 = [[HJK Helsinki|HJK]]",
+        "focus": [{"text": "HJK", "occurrence": 1}],
+        "expected": {
+          "values": ["hjk"],
+          "origin_rev_ids": [390661514]
+        }
+      }
+    ]
+  },
+  {
+    "title": "1925 Seanad election",
+    "fixture": "fixtures/1925_seanad_revisions.json",
+    "history_through_revid": 507079169,
+    "snapshot_revid": 507079169,
+    "cases": [
+      {
+        "id": "evaluation_seanad_by_election_phrase_origin",
+        "context": "[[P. J. Brady]] elected at a by-election to replace [[Stephen O'Mara]]",
+        "focus": ["elected at a by-election"],
+        "expected": {
+          "values": ["elected", "at", "a", "by", "-", "election"],
+          "origin_rev_ids": [326650275, 326650275, 326650275, 326650275, 326650275, 326650275]
+        }
+      },
+      {
+        "id": "evaluation_seanad_replacement_phrase_origin",
+        "context": "[[P. J. Brady]] elected at a by-election to replace [[Stephen O'Mara]]",
+        "focus": ["to replace"],
+        "expected": {
+          "values": ["to", "replace"],
+          "origin_rev_ids": [326650275, 326650275]
         }
       }
     ]

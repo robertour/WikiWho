@@ -5,10 +5,11 @@ https://github.com/pypa/sampleproject
 """
 
 # Always prefer setuptools over distutils
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Extension
 # To use a consistent encoding
 from codecs import open
 from os import path
+import sys
 
 here = path.abspath(path.dirname(__file__))
 
@@ -68,6 +69,16 @@ setup(
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
+
+    ext_modules=[
+        Extension(
+            'WikiWho._structural_native',
+            sources=['WikiWho/_structural_native.c'],
+            # Keep source installs fail-open: WikiWho has exact Python
+            # fallbacks for every accelerated kernel.
+            optional=True,
+        ),
+    ] if sys.version_info[0] >= 3 else [],
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
